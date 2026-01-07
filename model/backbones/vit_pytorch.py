@@ -344,7 +344,7 @@ class TransReID(nn.Module):
         self.num_classes = num_classes
         self.fc = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, camera_id, view_id):
+    def forward_features(self, x, camera_id=None, view_id=None):
         B = x.shape[0]
         x = self.patch_embed(x)
 
@@ -379,7 +379,11 @@ class TransReID(nn.Module):
 
         visibility = self.visibility_head(patch_tokens)  # [B, N, 1]
 
-        return cls_token, patch_tokens, visibility
+        return {
+            "vis_global": cls_token,
+            "patch_tokens": patch_tokens,
+            "visibility": visibility
+        }
 
     def load_param(self, model_path):
         param_dict = torch.load(model_path, map_location='cpu')

@@ -105,5 +105,7 @@ class CNNBranch(nn.Module):
         return {
             "global_feat": global_feat,
             "part_feats": part_feats,
-            "semantic_maps": semantic_maps
+            "semantic_maps": semantic_maps,
+            "feat_map": x
         }
+

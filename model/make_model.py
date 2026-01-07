@@ -5,7 +5,8 @@ import copy
 from .backbones.vit_pytorch import vit_base_patch16_224_TransReID, vit_small_patch16_224_TransReID, \
     deit_small_patch16_224_TransReID
 from loss.metric_learning import Arcface, Cosface, AMSoftmax, CircleLoss
-
+from model.scvgd.cnn_branch import CNNBranch
+from model.scvgd.fusion import VisibilityGuidedFusion
 
 def shuffle_unit(features, shift, group, begin=1):
     batchsize = features.size(0)
@@ -178,15 +179,40 @@ class build_transformer(nn.Module):
         else:
             self.classifier = nn.Linear(self.in_planes, self.num_classes, bias=False)
             self.classifier.apply(weights_init_classifier)
+        self.cnn_branch = CNNBranch(
+            num_parts=cfg.MODEL.NUM_PARTS,
+            embed_dim=cfg.MODEL.FEAT_DIM
+        )
+
+        self.fusion = VisibilityGuidedFusion(
+            embed_dim=cfg.MODEL.FEAT_DIM,
+            num_parts=cfg.MODEL.NUM_PARTS
+        )
+        self.vit_proj = nn.Linear(768, cfg.MODEL.FEAT_DIM)
 
         self.bottleneck = nn.BatchNorm1d(self.in_planes)
         self.bottleneck.bias.requires_grad_(False)
         self.bottleneck.apply(weights_init_kaiming)
 
     def forward(self, x, label=None, cam_label=None, view_label=None):
-        cls, patches, visibility = self.base(x, cam_label=cam_label, view_label=view_label)
+        """cls = self.base(x, cam_label=cam_label, view_label=view_label)["vis_global"]
+        patches = self.base(x, cam_label=cam_label, view_label=view_label)["patch_tokens"]
+        visibility = self.base(x, cam_label=cam_label, view_label=view_label)["visibility"]
 
-        feat = self.bottleneck(cls)
+        feat = self.bottleneck(cls)"""
+
+        # Transformer branch
+        vit_out = self.base(x)
+        vit_out["vis_global"] = self.vit_proj(vit_out["vis_global"])
+
+        # CNN branch
+        cnn_out = self.cnn_branch(x)
+
+        # Fusion
+        embedding, part_visibility = self.fusion(vit_out=vit_out,cnn_out=cnn_out,cnn_feat_map=cnn_out["feat_map"])
+
+        # Bottleneck (TransReID standard)
+        feat = self.bottleneck(embedding)
 
         if self.training:
             if self.ID_LOSS_TYPE in ('arcface', 'cosface', 'amsoftmax', 'circle'):
@@ -194,14 +220,14 @@ class build_transformer(nn.Module):
             else:
                 cls_score = self.classifier(feat)
 
-            return cls_score, global_feat  # global feature for triplet loss
+            return cls_score, embedding  # global feature for triplet loss
         else:
             if self.neck_feat == 'after':
                 # print("Test with feature after BN")
                 return feat
             else:
                 # print("Test with feature before BN")
-                return global_feat
+                return embedding
 
     def load_param(self, trained_path):
         param_dict = torch.load(trained_path)

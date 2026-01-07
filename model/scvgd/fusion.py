@@ -3,16 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class PatchToPartVisibility(nn.Module):
-    def __init__(self, num_parts, num_patches):
+    def __init__(self, num_parts):
         super().__init__()
         self.num_parts = num_parts
-        self.num_patches = num_patches
 
     def forward(self, patch_visibility):
-        """
-        patch_visibility: [B, N, 1]
-        return: part_visibility [B, K]
-        """
         B, N, _ = patch_visibility.shape
         patches_per_part = N // self.num_parts
 
@@ -22,9 +17,7 @@ class PatchToPartVisibility(nn.Module):
             end = (i + 1) * patches_per_part if i < self.num_parts - 1 else N
             part_vis.append(patch_visibility[:, start:end].mean(dim=1))
 
-        part_vis = torch.cat(part_vis, dim=1)
-        return part_vis
-
+        return torch.cat(part_vis, dim=1)
 
 
 class VisibilityFiLM(nn.Module):
@@ -87,5 +80,3 @@ class VisibilityGuidedFusion(nn.Module):
         embedding = F.normalize(embedding, p=2, dim=1)
 
         return embedding, part_visibility
-
-
